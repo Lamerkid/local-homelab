@@ -1,0 +1,125 @@
+- name: Initialize cluster
+  hosts: masters[0]
+  become: true
+  vars:
+    control_plane_endpoint: "{{ hostvars[groups['load_balancer'][0]]['ansible_host'] }}"
+  tasks:
+    - name: Initialize cluster
+      command: kubeadm init --control-plane-endpoint {{ control_plane_endpoint }} --upload-certs
+      register: init_result
+      args:
+        creates: /etc/kubernetes/admin.conf
+
+    - name: Create kubeconfig
+      shell: |
+        mkdir -p /home/ubuntu/.kube
+        cp /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
+        chown -R ubuntu:ubuntu /home/ubuntu/.kube
+
+    - name: Install Calico
+      command: kubectl apply -f
+        https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/calico.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Get join commands
+      shell: |
+        kubeadm token create --print-join-command > /tmp/join-command.txt
+        kubeadm init phase upload-certs --upload-certs | grep -v "upload-certs" > /tmp/cert-key.txt
+      args:
+        creates: /tmp/join-command.txt
+
+    - name: Fetch join commands
+      fetch:
+        src: "{{ item }}"
+        dest: "/tmp/{{ item | basename }}"
+        flat: yes
+      loop:
+        - /tmp/join-command.txt
+        - /tmp/cert-key.txt
+
+- name: Join additional masters
+  hosts: masters[1:]
+  become: true
+  tasks:
+    - name: Read join command
+      slurp:
+        src: /tmp/join-command.txt
+      register: join_command
+      delegate_to: master-1
+
+    - name: Read certificate key
+      slurp:
+        src: /tmp/cert-key.txt
+      register: cert_key
+      delegate_to: "{{ groups['masters'][0] }}"
+
+    - name: Join cluster as master
+      shell: |
+        {{ join_command.content | b64decode }} --control-plane --certificate-key {{ cert_key.content | b64decode | trim }}
+      register: join_result
+      args:
+        creates: /etc/kubernetes/admin.conf
+
+    - name: Create kubeconfig
+      shell: |
+        mkdir -p /home/ubuntu/.kube
+        cp /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
+        chown -R ubuntu:ubuntu /home/ubuntu/.kube
+
+- name: Join workers
+  hosts: workers
+  become: true
+  tasks:
+    - name: Reset kubeadm (clean previous state)
+      command: kubeadm reset --force
+
+    - name: Remove node from cluster (on master)
+      delegate_to: "{{ groups['masters'][0] }}"
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      command: kubectl delete node {{ inventory_hostname }}
+
+    - name: Wait for node removal
+      pause:
+        seconds: 3
+
+    - name: Read join command
+      slurp:
+        src: /tmp/join-command.txt
+      register: join_command
+      delegate_to: "{{ groups['masters'][0] }}"
+
+    - name: Join cluster as worker
+      shell: "{{ join_command.content | b64decode }}"
+      register: join_result
+      args:
+        creates: /etc/kubernetes/kubelet.conf
+
+- name: Verify cluster
+  hosts: masters[0]
+  become: true
+  tasks:
+    - name: Wait for nodes
+      command: kubectl get nodes
+      register: nodes
+      until: nodes.stdout.find("NotReady") == -1
+      retries: 30
+      delay: 10
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Display cluster status
+      debug:
+        msg: |
+          Cluster is ready!
+
+          Control Plane:
+          {% for host in groups['masters'] %}
+          - {{ hostvars[host]['ansible_facts']['hostname'] }}: {{ hostvars[host]['ansible_facts']['default_ipv4']['address'] }}
+          {% endfor %}
+
+          Workers:
+          {% for host in groups['workers'] %}
+          - {{ hostvars[host]['ansible_facts']['hostname'] }}: {{ hostvars[host]['ansible_facts']['default_ipv4']['address'] }}
+          {% endfor %}
