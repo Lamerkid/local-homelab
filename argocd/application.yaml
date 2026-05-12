@@ -7,7 +7,7 @@ spec:
   project: default
   source:
     path: argocd/cluster
-    repoURL: git@github.com:Lamerkid/local-homelab.git
+    repoURL: https://github.com/Lamerkid/local-homelab.git
     targetRevision: main
   destination:
     server: https://kubernetes.default.svc
