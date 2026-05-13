@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    path: argocd/cluster
+    path: argocd
     repoURL: https://github.com/Lamerkid/local-homelab.git
     targetRevision: main
   destination:
