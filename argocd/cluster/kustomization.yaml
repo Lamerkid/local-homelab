@@ -7,4 +7,4 @@ helmCharts:
       - values-1.yaml
 
 helmGlobals:
-  chartHome: ../app
+  chartHome: ../charts
