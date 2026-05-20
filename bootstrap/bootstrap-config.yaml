@@ -1,0 +1,17 @@
+base_image:
+  path: "/var/lib/libvirt/base-image/base-ubuntu24.qcow2"
+
+pool:
+  name: "homelab-pool"
+  type: "dir"
+  target: "/var/lib/libvirt/homelab-pool"
+
+network:
+  name: "homelab-net"
+  mode: "nat"
+  bridge: "virbr2"
+  domain: "homelab.local"
+  address: "10.0.0.1"
+  prefix: "24"
+  range_start: "10.0.0.10"
+  range_end: "10.0.0.100"

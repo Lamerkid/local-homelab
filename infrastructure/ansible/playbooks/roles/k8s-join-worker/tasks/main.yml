@@ -1,0 +1,25 @@
+- name: Reset kubeadm (clean previous state)
+  command: kubeadm reset --force
+
+- name: Remove node from cluster (on master)
+  delegate_to: "{{ groups['masters'][0] }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  command: kubectl delete node {{ inventory_hostname }}
+  ignore_errors: true
+
+- name: Wait for node removal
+  pause:
+    seconds: 3
+
+- name: Read join command
+  slurp:
+    src: /tmp/join-command.txt
+  register: join_command
+  delegate_to: "{{ groups['masters'][0] }}"
+
+- name: Join cluster as worker
+  shell: "{{ join_command.content | b64decode }}"
+  register: join_result
+  args:
+    creates: /etc/kubernetes/kubelet.conf

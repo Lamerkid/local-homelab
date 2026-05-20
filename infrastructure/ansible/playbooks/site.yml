@@ -1,0 +1,48 @@
+- name: Setup all servers
+  hosts: all
+  become: true
+  tags: always
+  roles:
+    - role: common
+
+- name: Setup Kubernetes cluster
+  hosts: masters:workers
+  become: true
+  tags: [kubernetes, k8s]
+  roles:
+    - role: k8s
+
+- name: Setup HAProxy
+  hosts: load_balancer
+  become: true
+  tags: [kubernetes, k8s, haproxy]
+  roles:
+    - role: haproxy
+
+- name: Initialize cluster
+  hosts: masters[0]
+  become: true
+  tags: [kubernetes, k8s, k8s-init]
+  roles:
+    - role: k8s-init
+
+- name: Join additional masters
+  hosts: masters[1:]
+  become: true
+  tags: [kubernetes, k8s, k8s-join-master]
+  roles:
+    - role: k8s-join-master
+
+- name: Join workers
+  hosts: workers
+  become: true
+  tags: [kubernetes, k8s, k8s-join-worker]
+  roles:
+    - role: k8s-join-worker
+
+- name: Verify cluster
+  hosts: masters[0]
+  become: true
+  tags: [kubernetes, k8s, k8s-virify-cluster]
+  roles:
+    - role: k8s-verify-cluster

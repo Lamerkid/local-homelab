@@ -1,0 +1,33 @@
+- name: Initialize cluster
+  command: kubeadm init --control-plane-endpoint {{ control_plane_endpoint }} --upload-certs
+  register: init_result
+  args:
+    creates: /etc/kubernetes/admin.conf
+
+- name: Create kubeconfig
+  shell: |
+    mkdir -p /home/{{ ansible_user }}/.kube
+    cp /etc/kubernetes/admin.conf /home/{{ ansible_user }}/.kube/config
+    chown -R {{ ansible_user }}:{{ ansible_user }} /home/{{ ansible_user }}/.kube
+
+- name: Install Calico
+  command: kubectl apply -f
+    https://raw.githubusercontent.com/projectcalico/calico/v{{ calico_version }}/manifests/calico.yaml
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: Get join commands
+  shell: |
+    kubeadm token create --print-join-command > /tmp/join-command.txt
+    kubeadm init phase upload-certs --upload-certs | grep -v "upload-certs" > /tmp/cert-key.txt
+  args:
+    creates: /tmp/join-command.txt
+
+- name: Fetch join commands
+  fetch:
+    src: "{{ item }}"
+    dest: "/tmp/{{ item | basename }}"
+    flat: yes
+  loop:
+    - /tmp/join-command.txt
+    - /tmp/cert-key.txt

@@ -1,0 +1,25 @@
+- name: Read join command
+  slurp:
+    src: /tmp/join-command.txt
+  register: join_command
+  delegate_to: "{{ groups['masters'][0] }}"
+
+- name: Read certificate key
+  slurp:
+    src: /tmp/cert-key.txt
+  register: cert_key
+  delegate_to: "{{ groups['masters'][0] }}"
+
+- name: Join cluster as master
+  shell: |
+    {{ join_command.content | b64decode | replace('\n', ' ') | trim }} --control-plane --certificate-key {{ cert_key.content | b64decode | trim }}
+  register: join_result
+  args:
+    creates: /etc/kubernetes/admin.conf
+  ignore_errors: true
+
+- name: Create kubeconfig
+  shell: |
+    mkdir -p /home/{{ ansible_user }}/.kube
+    cp /etc/kubernetes/admin.conf /home/{{ ansible_user }}/.kube/config
+    chown -R {{ ansible_user }}:{{ ansible_user }} /home/{{ ansible_user }}/.kube

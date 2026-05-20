@@ -1,0 +1,2 @@
+calico_version: "3.32.0"
+control_plane_endpoint: "{{ hostvars[groups['load_balancer'][0]]['ansible_host'] }}"

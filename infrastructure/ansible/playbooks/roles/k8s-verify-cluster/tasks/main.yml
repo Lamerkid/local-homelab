@@ -1,0 +1,23 @@
+- name: Wait for nodes
+  command: kubectl get nodes
+  register: nodes
+  until: nodes.stdout.find("NotReady") == -1
+  retries: 30
+  delay: 10
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: Display cluster status
+  debug:
+    msg: |
+      Cluster is ready!
+
+      Control Plane:
+      {% for host in groups['masters'] %}
+      - {{ hostvars[host]['ansible_facts']['hostname'] }}: {{ hostvars[host]['ansible_facts']['default_ipv4']['address'] }}
+      {% endfor %}
+
+      Workers:
+      {% for host in groups['workers'] %}
+      - {{ hostvars[host]['ansible_facts']['hostname'] }}: {{ hostvars[host]['ansible_facts']['default_ipv4']['address'] }}
+      {% endfor %}

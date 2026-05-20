@@ -1,111 +1,126 @@
-# Local homelab based on KVM
+# Local homelab
 
-## Enable virtualization on you local machine
+- ✔ Hypervisor ✔
+  - [KVM/libvirt](/docs/Virtualization.md)
+- ✔ IaC ✔
+  - Terraform
+    - Providers
+      - dmacvicar/libvirt
+      - hashicorp/local
+- ✔ Configuration management ✔
+  - Ansible
+- CI/CD
+  - Gitlab CI
+  - ArgoCD
+- Secrets
+  - Hashicorp Vault
+- Ingress
+  - NGINX Ingress
+- ✔ Orchestration ✔
+  - Kubernetes
+    - kubeadm
+    - HAProxy
+    - Calico
+- Database
+  - PostgreSQL
+- Monitoring
+  - Prometheus
+  - Grafana
+- Logging
+  - Loki/ELK
 
-### Check if your CPU Supports virtualization
+## Infrastructure as code
 
-```sh
-grep -c '(vmx|svm)' /proc/cpuinfo
-```
+Bootstrap configuration is defined in [bootstrap/bootstrap-config.yaml](bootstrap/bootstrap-config.yaml):
 
-### Install KVM and management tools
+- Base image
+- Storage pool
+- Network
 
-debian/ubuntu
+Infrastructure configuration is defined in [infrastructure/cluster-config.yaml](infrastructure/cluster-config.yaml):
 
-```sh
-sudo apt install -y \
-    qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils virtinst \
-    libvirt \
-    virt-install \
-    virt-manager \
-    virt-viewer \
-    libguestfs-tools \
-    virt-top
-```
+- VM nodes
+- Defaults
+- Local ssh keys
 
-rhel/fedora
+### Helper scripts
 
-```sh
-sudo dnf install -y \
-    @virtualization \
-    qemu-kvm \
-    libvirt \
-    virt-install \
-    virt-manager \
-    virt-viewer \
-    libguestfs-tools \
-    virt-top
-```
+[bootstrap/scripts](bootstrap/scripts):
 
-### Enable libvirtd daemon
+- download-image.sh - wgets current ubuntu 24 and places it close to virt pool
 
-```sh
-sudo systemctl enable libvirtd
-sudo systemctl start libvirtd
-```
+[infrastructure/scripts](infrastructure/scripts)
 
-### Verify virtualization works
+- check-conn.sh - runs after VMs is created and checks ssh connectivity
+- get-kubeconfig.sh - runs after k8s is configured, clones `~/.kube/config` locally
 
-```sh
-sudo virsh list --all
-sudo virt-host-validate
-```
+## Configuration Management
 
-## Cloud image
+Ansible configuration of deployed servers is is located at [infrastructure/ansible](infrastructure/ansible)
 
-### Download cloud image (example: Ubuntu 22.04)
+## Sequence diagram example
 
-```sh
-wget https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
-```
+Example diagram how infrastructure and kubernetes cluster are deployed.
+All user inputs automated with [Makefile](Makefile)
+Run `make help` to see all the commands.
 
-### Create base image
+```mermaid
+sequenceDiagram
+    participant User
+    participant Bootstrap
+    participant Infrastructure
+    participant Module
+    participant Libvirt
+    participant Ansible
+    participant Kubernetes
 
-```sh
-sudo cp jammy-server-cloudimg-amd64.img /var/lib/libvirt/vm-pool/base-ubuntu22.qcow2
-sudo qemu-img info /var/lib/libvirt/vm-pool/base-ubuntu22.qcow2
-```
+    User->>Bootstrap: Download base image
+    Bootstrap-->>User: Base image ready
+    User->>Bootstrap: terraform apply (with bootstrap_config.yaml)
+    Libvirt->>Bootstrap: Read base image
+    Bootstrap->>Libvirt: Create storage pool
+    Libvirt-->>Bootstrap: Pool created
+    Bootstrap->>Libvirt: Create NAT network
+    Libvirt-->>Bootstrap: Network ready
+    Bootstrap-->>User: Bootstrap complete (outputs saved)
 
-## Terraform configuration
+    User->>Infrastructure: terraform apply (with cluster_config.yaml)
+    Infrastructure->>Bootstrap: Read outputs via remote_state
+    Bootstrap-->>Infrastructure: pool_name, network_name, base_image_path
+    
+    loop For each node in cluster_config.yaml
+        Infrastructure->>Module: Call vm module
+        Module->>Libvirt: Create cloud-init ISO
+        Module->>Libvirt: Create COW disk
+        Module->>Libvirt: Define VM domain
+        Libvirt-->>Module: VM created
+        Module-->>Infrastructure: VM ID and IP
+    end
+    
+    Infrastructure->>Libvirt: Wait for DHCP leases
+    Libvirt-->>Infrastructure: IP addresses assigned
+    Infrastructure->>Infrastructure: Generate Ansible inventory
+    Infrastructure-->>User: Infrastructure ready
 
-Inside [terraform/variables.tf](kubernetes/terraform/variables.tf) you can configure:
-
-- Public and private SSH keys for accessing your VMs
-- Path where you saved your base image
-- Network configuration
-- Resources for VMs
-- Master and worker nodes count
-
-## Script configuration
-
-Inside [deploy-k8s](kubernetes/deploy-k8s.sh) you can set:
-
-- Private SSH key for accessing your VMs `SSH_KEY="$HOME/.ssh/id_rsa"`
-
-## Make deploy
-
-To deploy VMs run `make deploy`
-
-Run `make help` to list all available commands
-
-### DNS resolve
-
-To access hosts by domain names you need:
-
-```sh
-# Check the bridge IP (default virbr2)
-ip addr show virbr2
-
-# Use that IP as DNS (default 10.0.0.1 and homelab.local)
-sudo resolvectl dns virbr2 10.0.0.1
-sudo resolvectl domain virbr2 homelab.local
-
-# Check current DNS settings for virbr2
-resolvectl status virbr2
-```
-
-To remove custom DNS from network use:
-
-```sh
-sudo resolvectl revert virbr2
+    User->>Infrastructure: Check connection
+    Infrastructure-->>User: Hosts are available
+    rect rgb(111, 156, 101)
+      User->>Ansible: ansible-playbook site.yml
+      Ansible->>Infrastructure: Read inventory
+      Infrastructure-->>Ansible: Hosts and IPs
+      
+      rect rgb(99, 139, 204)
+        Ansible->>Kubernetes: Install containerd on all nodes
+        Ansible->>Kubernetes: Install kubeadm/kubelet/kubectl
+        Ansible->>Kubernetes: Initialize first master
+        Ansible->>Kubernetes: Install CNI (Calico)
+        Ansible->>Kubernetes: Join additional masters
+        Ansible->>Kubernetes: Join workers
+        Kubernetes-->>Ansible: Cluster ready
+        Ansible-->>User: Playbook completed
+        User->>Infrastructure: Get kube config
+        Infrastructure->>Kubernetes: Clone remote config
+        Kubernetes-->>User: Created ~/.kube/config
+      end
+    end
 ```

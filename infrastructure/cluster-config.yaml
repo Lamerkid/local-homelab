@@ -1,0 +1,31 @@
+nodes:
+  master-1:
+    hostname: k8s-master-1
+    role: masters
+    memory: 2048
+    vcpu: 2
+    disk: 10
+
+  worker-1:
+    hostname: k8s-worker-1
+    role: workers
+    memory: 2048
+    vcpu: 2
+    disk: 10
+
+  lb:
+    hostname: lb
+    role: load_balancer
+    memory: 512
+    vcpu: 1
+    disk: 10
+
+defaults:
+  memory: 2048
+  vcpu: 2
+  disk: 10
+  user: ubuntu
+
+local:
+  ssh_public_key_path: "~/.ssh/id_rsa.pub"
+  ssh_private_key_path: "~/.ssh/id_rsa"
